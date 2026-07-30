@@ -340,6 +340,27 @@
   @media (prefers-reduced-motion: reduce){
     .cf-toast{transition:none;} .flashsel{animation:none;}
   }
+
+  /* ---------- resume swap + quick-apply readiness ---------- */
+  .up-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    border-bottom:1px solid var(--line-soft);padding:16px 0 18px;}
+  .up-row .up-state{font-family:var(--mono);font-size:11.5px;color:var(--muted);letter-spacing:.03em;line-height:1.6;}
+  .up-row .up-state b{color:var(--text);font-weight:500;}
+  .up-row .up-state .live{color:var(--live);}
+  .up-row .up-state .warn{color:var(--warn);}
+  .qa-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1px;
+    background:var(--line-soft);border:1px solid var(--line-soft);border-radius:3px;overflow:hidden;margin-top:20px;}
+  .qa-item{background:var(--panel);padding:18px 20px;display:flex;gap:13px;align-items:flex-start;cursor:pointer;
+    transition:background .16s ease;}
+  .qa-item:hover{background:var(--panel-2);}
+  .qa-box{flex:0 0 auto;width:15px;height:15px;border:1px solid var(--cold);border-radius:2px;margin-top:3px;
+    display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--ink);line-height:1;}
+  .qa-item.on .qa-box{background:var(--live);border-color:var(--live);}
+  .qa-item.on .qa-box::after{content:'\2713';color:#08080a;font-weight:700;}
+  .qa-t{font-size:14.5px;font-weight:500;color:var(--text);letter-spacing:-.01em;}
+  .qa-d{font-size:13px;color:var(--muted);margin-top:5px;line-height:1.55;}
+  .qa-d a{font-family:var(--mono);font-size:11.5px;}
+  .qa-item.on .qa-t{color:var(--muted);}
 </style>
 </head>
 <body>
@@ -2161,6 +2182,245 @@ render();
     var d = readDay();
     if(d.date !== day.date){ day = d; writeDay(day); paintUsed(); }
   });
+
+})();
+</script>
+
+<script>
+/* ==================================================================
+   ADDED 2026-07-29 — the eleven script blocks above are untouched.
+   1. Swap the attached resume for a file off your own machine.
+   2. Quick-apply readiness: the prerequisites that actually make
+      1-Click Apply and Simplify autofill work.
+================================================================== */
+(function(){
+
+  var RKEY = 'cf_resume_v1';
+  var QKEY = 'cf_quickapply_v1';
+  var MAXB = 3 * 1024 * 1024;
+
+  var OK = (function(){
+    try { localStorage.setItem('__p','1'); localStorage.removeItem('__p'); return true; }
+    catch(e){ return false; }
+  })();
+
+  function get(k){ try { return OK ? JSON.parse(localStorage.getItem(k) || 'null') : (window['__'+k] || null); } catch(e){ return null; } }
+  function put(k,v){ if(OK){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} } else { window['__'+k] = v; } }
+
+  /* ================= 1. resume swap ================= */
+  var head = document.querySelector('#resume .res-head');
+  if(!head) return;
+
+  var row = document.createElement('div');
+  row.className = 'up-row';
+  row.innerHTML =
+    '<button class="ghost" id="upBtn">Choose resume from computer</button>' +
+    '<button class="ghost" id="upClear" style="display:none">Revert to original</button>' +
+    '<div class="up-state" id="upState"></div>';
+  head.parentNode.insertBefore(row, head.nextSibling);
+
+  var input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.pdf,.doc,.docx,application/pdf';
+  input.hidden = true;
+  row.appendChild(input);
+
+  function fmtDate(ms){
+    return new Date(ms).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'});
+  }
+
+  function paint(){
+    var f = get(RKEY);
+    var state = document.getElementById('upState');
+    var clear = document.getElementById('upClear');
+
+    if(!f){
+      state.innerHTML = 'Attached: <b>Carlton_Franks_Resume_2026.pdf</b> &middot; the copy built into this page.';
+      clear.style.display = 'none';
+      return;
+    }
+
+    var age = Math.floor((Date.now() - f.modified) / 86400000);
+    var freshness = age < 45
+      ? '<span class="live">' + (age <= 0 ? 'saved today' : age + ' days old') + '</span>'
+      : '<span class="warn">' + age + ' days old &mdash; worth refreshing</span>';
+
+    state.innerHTML = 'Attached: <b>' + f.name + '</b> &middot; last modified ' +
+                      fmtDate(f.modified) + ' &middot; ' + freshness +
+                      (OK ? '' : '<br>Storage is blocked here, so this lasts until you refresh.');
+    clear.style.display = '';
+
+    /* the stamp block 2 wrote is now describing the wrong file */
+    var stamp = document.querySelector('#resume .res-stamp');
+    if(stamp){
+      stamp.innerHTML = 'Your file &middot; <b>' + fmtDate(f.modified) + '</b> &middot; ' + freshness;
+    }
+
+    /* clone the download button to shed block 2's listener, then serve
+       the uploaded bytes instead of the embedded ones */
+    var old = document.getElementById('dlBtn');
+    if(old && !old.dataset.swapped){
+      var fresh = old.cloneNode(true);
+      fresh.dataset.swapped = '1';
+      fresh.textContent = 'Download your file';
+      old.parentNode.replaceChild(fresh, old);
+      fresh.addEventListener('click', function(){
+        var cur = get(RKEY);
+        if(!cur) return;
+        var bin = atob(cur.data);
+        var arr = new Uint8Array(bin.length);
+        for(var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([arr], {type: cur.type || 'application/pdf'}));
+        a.download = cur.name;
+        a.click();
+        setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1500);
+      });
+    }
+  }
+
+  document.getElementById('upBtn').addEventListener('click', function(){ input.click(); });
+
+  input.addEventListener('change', function(e){
+    var file = e.target.files[0];
+    if(!file) return;
+    var state = document.getElementById('upState');
+
+    if(file.size > MAXB){
+      state.innerHTML = '<span class="warn">That file is ' +
+        Math.round(file.size/1024/1024*10)/10 + ' MB. Keep it under 3 MB &mdash; ' +
+        'browser storage will reject anything larger.</span>';
+      e.target.value = '';
+      return;
+    }
+
+    var rd = new FileReader();
+    rd.onload = function(){
+      var b64 = String(rd.result).split(',')[1];
+      put(RKEY, {
+        name: file.name,
+        type: file.type || 'application/pdf',
+        modified: file.lastModified || Date.now(),
+        data: b64
+      });
+      paint();
+    };
+    rd.onerror = function(){
+      state.innerHTML = '<span class="warn">That file could not be read. Try a PDF.</span>';
+    };
+    rd.readAsDataURL(file);
+    e.target.value = '';
+  });
+
+  document.getElementById('upClear').addEventListener('click', function(){
+    if(OK){ try { localStorage.removeItem(RKEY); } catch(e){} } else { window['__'+RKEY] = null; }
+    location.reload();
+  });
+
+  paint();
+
+  /* ================= 2. quick-apply readiness ================= */
+  var profile = document.getElementById('profile');
+  if(!profile) return;
+
+  var ITEMS = [
+    ['Resume on file at ZipRecruiter',
+     'Their 1-Click Apply only appears once a resume sits on your profile. Without it every listing hands you off to the company site instead.',
+     'https://www.ziprecruiter.com/profile'],
+    ['Resume on file at Indeed',
+     'Same rule for the "Easily apply" listings. Upload once and a large share of Indeed postings collapse to a two-click submit.',
+     'https://www.indeed.com/'],
+    ['Simplify extension installed',
+     'The only thing here that can genuinely fill a form for you. It runs inside the page, which is the permission a web page cannot have.',
+     'https://simplify.jobs/dashboard'],
+    ['Profile fields above filled in',
+     'Simplify and both boards pull from a saved profile. Whatever you have edited in the panel above should match what those profiles say.',
+     '']
+  ];
+
+  var head2 = document.createElement('h2');
+  head2.textContent = 'Quick-apply readiness';
+  head2.style.marginTop = '48px';
+
+  var sub2 = document.createElement('p');
+  sub2.className = 'sub';
+  sub2.innerHTML = 'No web page can submit an application for you &mdash; the browser blocks one site from ' +
+    'touching another\u2019s forms, which is the same wall the prefill panel runs into. What does exist is ' +
+    'one-click apply on the boards themselves, and it only switches on once these are done. Tick them off once ' +
+    'and most listings drop to two clicks.';
+
+  var grid = document.createElement('div');
+  grid.className = 'qa-grid';
+
+  var state = get(QKEY) || {};
+
+  ITEMS.forEach(function(it, i){
+    var cell = document.createElement('div');
+    cell.className = 'qa-item' + (state[i] ? ' on' : '');
+    cell.innerHTML = '<div class="qa-box"></div><div><div class="qa-t"></div><div class="qa-d"></div></div>';
+    cell.querySelector('.qa-t').textContent = it[0];
+    var d = cell.querySelector('.qa-d');
+    d.textContent = it[1];
+    if(it[2]){
+      d.appendChild(document.createElement('br'));
+      var a = document.createElement('a');
+      a.href = it[2]; a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = it[2].replace(/^https?:\/\/(www\.)?/, '');
+      a.addEventListener('click', function(ev){ ev.stopPropagation(); });
+      d.appendChild(a);
+    }
+    cell.addEventListener('click', function(){
+      state[i] = !state[i];
+      cell.classList.toggle('on', !!state[i]);
+      put(QKEY, state);
+    });
+    grid.appendChild(cell);
+  });
+
+  profile.appendChild(head2);
+  profile.appendChild(sub2);
+  profile.appendChild(grid);
+
+})();
+</script>
+
+<script>
+/* ==================================================================
+   ADDED 2026-07-30 — the twelve script blocks above are untouched.
+   1. Quick-apply readiness relocates to sit under the Top 10.
+   2. Resume starts collapsed; the existing toggle still runs it.
+================================================================== */
+(function(){
+
+  /* ---- 1. relocate quick-apply ---- */
+  var grid = document.querySelector('.qa-grid');
+  if(grid){
+    var sub = grid.previousElementSibling;
+    var h2  = sub ? sub.previousElementSibling : null;
+
+    if(h2 && h2.tagName === 'H2' && h2.textContent.indexOf('Quick-apply') > -1){
+      var sec = document.createElement('section');
+      sec.id = 'quickapply';
+
+      h2.style.marginTop = '';          /* section spacing takes over */
+      sec.appendChild(h2);
+      sec.appendChild(sub);
+      sec.appendChild(grid);
+
+      var targets = document.getElementById('targets');
+      if(targets && targets.parentNode){
+        targets.parentNode.insertBefore(sec, targets.nextSibling);
+      }
+    }
+  }
+
+  /* ---- 2. resume collapsed on arrival ---- */
+  var doc = document.getElementById('resDoc');
+  var btn = document.getElementById('tgBtn');
+  if(doc && btn){
+    doc.style.display = 'none';
+    btn.textContent = 'Show resume';   /* matches what block 2's toggle expects */
+  }
 
 })();
 </script>
