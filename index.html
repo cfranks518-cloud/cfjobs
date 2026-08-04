@@ -2724,5 +2724,145 @@ render();
 
 })();
 </script>
+
+<script>
+/* ==================================================================
+   ADDED 2026-07-31 (c) — the seventeen blocks above are untouched.
+   1. Drops the quote marks block 14 wrapped around search terms.
+      Exact-phrase matching was excluding real variants of each title.
+   2. Rotates the phrasing per 6-hour window, so repeat sweeps surface
+      different postings instead of the same page four times a day.
+================================================================== */
+(function(){
+
+  /* the same role, phrased the way different companies title it */
+  var VARIANTS = {
+    'Technical Account Manager':           ['Technical Account Manager','Strategic Account Manager','Enterprise Account Manager','Technical Account Management'],
+    'Implementation Consultant':           ['Implementation Consultant','Implementation Specialist','Software Implementation Consultant','Deployment Consultant'],
+    'Implementation Manager':              ['Implementation Manager','Implementation Lead','Deployment Manager'],
+    'Technical Customer Success Manager':  ['Technical Customer Success Manager','Customer Success Manager Technical','Senior Customer Success Manager','Technical CSM'],
+    'Onboarding Manager':                  ['Onboarding Manager','Customer Onboarding Manager','Onboarding Specialist','Client Onboarding Lead'],
+    'Professional Services Consultant':    ['Professional Services Consultant','Professional Services Manager','SaaS Consultant','Delivery Consultant'],
+    'Customer Solutions Engineer':         ['Customer Solutions Engineer','Solutions Support Engineer','Technical Solutions Engineer','Support Engineer'],
+    'Technical Program Manager':           ['Technical Program Manager','Technical Project Manager','SaaS Delivery Manager'],
+    'Technical Enablement Manager':        ['Technical Enablement Manager','Customer Education Manager','Enablement Manager','Technical Trainer'],
+    'AI Solutions Architect':              ['AI Solutions Architect','Solutions Architect AI','Associate Solutions Architect','AI Implementation Consultant'],
+    'Forward Deployed Engineer':           ['Forward Deployed Engineer','Deployment Engineer','Field Engineer AI','Forward Deployed Solutions Engineer'],
+    'Customer Success Operations Manager': ['Customer Success Operations Manager','Customer Success Operations','CS Operations Manager','Gainsight Administrator'],
+    'Renewals Manager':                    ['Renewals Manager','Renewal Manager','Customer Retention Manager','Renewals Account Manager'],
+    'IT Service Delivery Manager':         ['IT Service Delivery Manager','Service Delivery Manager','Managed Services Manager','Client Delivery Manager']
+  };
+
+  /* window index 0-3 picks the phrasing, so each sweep differs */
+  function windowIndex(){ return Math.floor(new Date().getHours() / 6); }
+
+  function variantFor(title){
+    var list = VARIANTS[title];
+    if(!list || !list.length) return title;
+    return list[windowIndex() % list.length];
+  }
+
+  /* recover the plain role name from whatever block 14 produced */
+  function plain(raw){
+    return String(raw || '')
+      .replace(/title:/gi, ' ')
+      .replace(/["']/g, ' ')          /* <- the quotes that broke it */
+      .replace(/-"[^"]*"/g, ' ')
+      .replace(/-\S+/g, ' ')
+      .replace(/\$[\d,]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function retune(url){
+    try {
+      var u = new URL(url);
+      var host = u.hostname.replace(/^www\./, '');
+
+      if(/ziprecruiter\.com$/.test(host)){
+        var s = plain(u.searchParams.get('search'));
+        if(s) u.searchParams.set('search', variantFor(s));
+        return u.toString();
+      }
+
+      if(/indeed\.com$/.test(host)){
+        var q = plain(u.searchParams.get('q'));
+        /* title: stays — it is what keeps sales roles out — but the
+           term itself is now unquoted so near-matches still land */
+        if(q) u.searchParams.set('q', 'title:' + variantFor(q));
+        return u.toString();
+      }
+    } catch(e){}
+    return url;
+  }
+
+  var chained = window.open;
+  window.open = function(url, name, feats){
+    if(typeof url === 'string') url = retune(url);
+    return chained.call(window, url, name, feats);
+  };
+
+  /* surface which phrasing this window is using */
+  function label(){
+    var bar = document.getElementById('cycTxt');
+    if(!bar || bar.dataset.variantTagged === String(windowIndex())) return;
+    bar.dataset.variantTagged = String(windowIndex());
+    var tag = document.createElement('span');
+    tag.innerHTML = '<br>Title phrasing rotates each window \u2014 same roles, different wording.';
+    bar.appendChild(tag);
+  }
+  label();
+  setInterval(label, 30000);
+
+})();
+</script>
+
+<script>
+/* ==================================================================
+   ADDED 2026-08-04 — the eighteen blocks above are untouched.
+   Quote fix. Wrappers on window.open run outermost-first, so block 18
+   stripped the quotes and block 14 put them straight back on the way
+   out. Rather than re-order anything, this neutralises the quoting at
+   the point it happens: URLSearchParams.set is patched to drop quote
+   marks for the duration of the call, then restored.
+================================================================== */
+(function(){
+
+  var nativeSet = URLSearchParams.prototype.set;
+
+  function clean(v){
+    return String(v)
+      .replace(/[\u0022\u0027\u201C\u201D\u2018\u2019]/g, '')  /* straight and curly */
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  var chained = window.open;
+
+  window.open = function(url, name, feats){
+    URLSearchParams.prototype.set = function(k, v){
+      return nativeSet.call(this, k, clean(v));
+    };
+    var w;
+    try {
+      if(typeof url === 'string'){
+        /* catch quotes already baked into the string before any wrapper */
+        try {
+          var u = new URL(url);
+          ['search','q'].forEach(function(p){
+            if(u.searchParams.has(p)) u.searchParams.set(p, clean(u.searchParams.get(p)));
+          });
+          url = u.toString();
+        } catch(e){}
+      }
+      w = chained.call(window, url, name, feats);
+    } finally {
+      URLSearchParams.prototype.set = nativeSet;
+    }
+    return w;
+  };
+
+})();
+</script>
 </body>
 </html>
